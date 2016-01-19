@@ -17,6 +17,50 @@
 /*global window, console, Worker*/
 
 var Metronome;
+if (typeof Array.prototype.removeAt !== "function") {
+    Array.prototype.removeAt = function (pos) {
+        "use strict";
+        var O,
+            len,
+            item,
+            k;
+        // Start internal toObject simulation
+        if (this === null || this === undefined) {
+            throw new TypeError('Array.prototype.removeAt called on null or undefined');
+        }
+        O = Object(this);
+        // End internal toObject simulation
+        len = O.length >>> 0; // Converts to Uint32
+        if (len === 0) {
+            O.length = 0;
+            return undefined;
+        }
+        //pos = Number.toInteger(pos);
+        // Start ToInteger conversion
+        pos = Number(pos);
+        pos = (pos !== pos) ? 0 : (pos === 0 || pos === Infinity || pos === -Infinity) ? pos : (pos > 0) ? Math.floor(pos) : Math.ceil(pos);
+        // End ToInteger conversion
+        if (pos < 0) {
+            k = Math.max(len + pos, 0);
+        } else {
+            k = Math.min(pos, len - 1);
+        }
+        item = O[k];
+        k += 1;
+        while (k < len) {
+            if (k in O) {
+                O[k - 1] = O[k];
+            } else {
+                delete O[k - 1];
+            }
+            k += 1;
+        }
+        len -= 1;
+        delete O[len];
+        O.length = len;
+        return item;
+    };
+}
 if (typeof Metronome !== "function") {
     (function (global, undef) {
         "use strict";
@@ -53,7 +97,7 @@ if (typeof Metronome !== "function") {
                 bpm = 0, // beats per minute
                 st = 0, // subticks, the number of ticks per beat
                 ticker = (typeof Worker === "function") ? new Worker('metronome-worker.js') : new PunyWorker(),
-                tickCallback,
+                list_of_callbacks = [],
                 loopage,
                 metro_param = {
                     tempo: 60,
@@ -61,10 +105,10 @@ if (typeof Metronome !== "function") {
                     debug: false
                 },
                 key = '',
-                is_playing = false,
+                is_ticking = false,
                 debug = false,
                 debugCallback = function debugCallback() {
-                    if (debug && console !== undef) {
+                    if (console !== undef) {
                         console.log(ticks + '   counter => ' + counter + '    (bpm / sps) * st => ' + additive);
                     }
                 };
@@ -81,30 +125,39 @@ if (typeof Metronome !== "function") {
             st = metro_param.subticks;
             additive = (bpm / sps) * st;
             debug = metro_param.debug;
-            tickCallback = (metro_param.callback !== undef && typeof metro_param.callback === 'function') ? metro_param.callback : debugCallback;
+            if (debug) {
+                list_of_callbacks.push(debugCallback);
+            }
+            if (metro_param.callback !== undef && typeof metro_param.callback === 'function') {
+                list_of_callbacks.push(metro_param.callback);
+            }
             // End setup settings
             // Below is the heart of the metronome script
             loopage = function loopage() {
+                var i, length, callback;
                 counter += additive;
                 // while() is used for instances where the counter is twice more than the sps (due to very high tempo values) and needs to be decremented back repeatedly to something that's under the sps on the same cycle
                 while (counter >= sps) {
                     counter -= sps;
                     ticks += 1;
-                    tickCallback();
+                    for (i = 0, length = list_of_callbacks.length; i < length; i += 1) {
+                        callback = list_of_callbacks[i];
+                        callback.call(instance);
+                    }
                 }
             };
             ticker.onmessage = loopage;
             this.start = function start() {
-                if (!is_playing) {
-                    is_playing = true;
+                if (!is_ticking) {
+                    is_ticking = true;
                     loopage();
                     ticker.postMessage('start');
                 }
                 return instance;
             };
             this.stop = function stop() {
-                if (is_playing) {
-                    is_playing = false;
+                if (is_ticking) {
+                    is_ticking = false;
                     ticker.postMessage('stop');
                     counter = 0;
                     ticks = 0;
@@ -112,22 +165,32 @@ if (typeof Metronome !== "function") {
                 return instance;
             };
             this.pause = function pause() {
-                if (is_playing) {
-                    is_playing = false;
+                if (is_ticking) {
+                    is_ticking = false;
                     ticker.postMessage('stop');
                 }
                 return instance;
             };
-            this.callback = function callback(user_callback) {
-                if (arguments.length > 0) {
-                    if (user_callback !== undef && typeof user_callback === 'function') {
-                        tickCallback = user_callback;
-                        return instance;
+            this.addCallback = function addCallback(user_callback) {
+                if (user_callback !== undef && typeof user_callback === 'function') {
+                    if (list_of_callbacks.indexOf(user_callback) < 0) {
+                        list_of_callbacks.push(user_callback);
                     }
-                    throw new TypeError('user_callback must be a function');
+                    return instance;
                 }
-                return tickCallback;
+                throw new TypeError('user_callback must be a function');
             };
+            this.removeCallback = function removeCallback(user_callback) {
+                var index;
+                if (user_callback !== undef && typeof user_callback === 'function') {
+                    index = list_of_callbacks.indexOf(user_callback);
+                    if (index > -1) {
+                        list_of_callbacks.removeAt(index);
+                    }
+                    return instance;
+                }
+                throw new TypeError('user_callback must be a function');
+            }
             this.tempo = function tempo(user_tempo) {
                 if (arguments.length > 0) {
                     if (user_tempo !== undef && typeof user_tempo === 'number') {
@@ -153,6 +216,14 @@ if (typeof Metronome !== "function") {
             this.ticks = function ticks() {
                 return ticks;
             };
+            if (debug) {
+                this.endDebug = function endDebug() {
+                    list_of_callbacks.shift();
+                    debug = false;
+                    delete instance.endDebug;
+                    return instance;
+                }
+            }
         };
     }(window));
 }
