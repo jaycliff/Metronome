@@ -127,11 +127,12 @@ Original article of method: http://www.yuiblog.com/blog/2010/09/27/clearfix-relo
             };
         }());
         // Example usage of the Metronome Constructor
-        metronome = new Metronome({ debug: false });
-        metronome.tempo(110).subticks(4).addCallback(ticker);
+        metronome = new Metronome({ debug: true });
+        metronome.tempo(60).subticks(4).addCallback(ticker);
         global.metronome = metronome;
         $('#start').on('click', function () {
             metronome.start();
+            ticker();
         });
         $('#pause').on('click', function () {
             metronome.pause();

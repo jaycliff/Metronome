@@ -1,13 +1,14 @@
 "use strict";
-var interval_id, is_ticking = false;
+var interval_id, is_ticking = false, sps = 60;
 function ticker() {
     self.postMessage('tick');
 }
 self.onmessage = function (event) {
-    switch (event.data) {
+    var data = event.data;
+    switch (data) {
     case 'start':
         if (!is_ticking) {
-            interval_id = setInterval(ticker, 1000 / 60);
+            interval_id = setInterval(ticker, 1000 / sps);
             is_ticking = true;
         }
         break;
@@ -17,5 +18,9 @@ self.onmessage = function (event) {
             is_ticking = false;
         }
         break;
+    default:
+        if (typeof data === "number") {
+            sps = data;
+        }
     }
 };

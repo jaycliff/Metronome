@@ -136,9 +136,10 @@ if (typeof Metronome !== "function") {
             loopage = function loopage() {
                 var i, length, callback;
                 counter += additive;
-                // while() is used for instances where the counter is twice more than the sps (due to very high tempo values) and needs to be decremented back repeatedly to something that's under the sps on the same cycle
-                while (counter >= sps) {
-                    counter -= sps;
+                // while() is used for instances where the counter is twice more than 60 (due to very high tempo values) and needs to be decremented back repeatedly to something that's under 60 on the same cycle
+                // 60 refers to the number of seconds per minute. This will serve as our constant / anchor
+                while (counter >= 60) {
+                    counter -= 60;
                     ticks += 1;
                     for (i = 0, length = list_of_callbacks.length; i < length; i += 1) {
                         callback = list_of_callbacks[i];
@@ -147,11 +148,12 @@ if (typeof Metronome !== "function") {
                 }
             };
             ticker.onmessage = loopage;
+            ticker.postMessage(sps);
             this.start = function start() {
                 if (!is_ticking) {
                     is_ticking = true;
-                    loopage();
                     ticker.postMessage('start');
+                    loopage();
                 }
                 return instance;
             };
@@ -213,7 +215,7 @@ if (typeof Metronome !== "function") {
                 }
                 return st;
             };
-            this.ticks = function ticks() {
+            this.getCurrentTicks = function getCurrentTicks() {
                 return ticks;
             };
             if (debug) {
