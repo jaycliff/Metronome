@@ -65,7 +65,7 @@ if (typeof Metronome !== "function") {
     (function (global, undef) {
         "use strict";
         function PunyWorker() {
-            var instance = this, interval_id, is_ticking = false;
+            var instance = this, interval_id, is_ticking = false, sps = 60;
             function ticker() {
                 if (typeof instance.onmessage === "function") {
                     instance.onmessage();
@@ -75,7 +75,7 @@ if (typeof Metronome !== "function") {
                 switch (message) {
                 case 'start':
                     if (!is_ticking) {
-                        interval_id = setInterval(ticker, 1000 / 60);
+                        interval_id = setInterval(ticker, 1000 / sps);
                         is_ticking = true;
                     }
                     break;
@@ -85,6 +85,10 @@ if (typeof Metronome !== "function") {
                         is_ticking = false;
                     }
                     break;
+                default:
+                    if (typeof message === "number") {
+                        sps = message;
+                    }
                 }
             };
         }
