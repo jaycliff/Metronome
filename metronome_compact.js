@@ -69,55 +69,80 @@ if (typeof Metronome !== "function") {
         if (typeof Blob === "function" && typeof URL === "function" && typeof Worker === "function") {
             worker_object_url = URL.createObjectURL(new Blob([
                 [
-                    '"use strict";',
-                    'var interval_id, is_ticking = false, sps = 60;',
-                    'function ticker() {',
-                    '    self.postMessage("tick");',
-                    '}',
-                    'self.onmessage = function (event) {',
-                    '    var data = event.data;',
-                    '    switch (data) {',
-                    '    case "start":',
-                    '        if (!is_ticking) {',
-                    '            interval_id = setInterval(ticker, 1000 / sps);',
-                    '            is_ticking = true;',
-                    '        }',
-                    '        break;',
-                    '    case "stop":',
-                    '        if (is_ticking) {',
+                    '/*global self*/',
+                    '(function metronomeWorkerSetup() {',
+                    '    "use strict";',
+                    '    var interval_id, is_ticking = false, adjusted_tempo = 60, update_interval = false;',
+                    '    function ticker() {',
+                    '        self.postMessage("tick");',
+                    '        if (update_interval) {',
                     '            clearInterval(interval_id);',
-                    '            is_ticking = false;',
-                    '        }',
-                    '        break;',
-                    '    default:',
-                    '        if (typeof data === "number") {',
-                    '            sps = data;',
+                    '            interval_id = setInterval(ticker, 60000 / adjusted_tempo);',
+                    '            update_interval = false;',
                     '        }',
                     '    }',
-                    '};'
+                    '    self.onmessage = function (event) {',
+                    '        var data = event.data;',
+                    '        switch (data) {',
+                    '        case "start":',
+                    '            if (!is_ticking) {',
+                    '                interval_id = setInterval(ticker, 60000 / adjusted_tempo);',
+                    '                is_ticking = true;',
+                    '            }',
+                    '            break;',
+                    '        case "stop":',
+                    '            if (is_ticking) {',
+                    '                clearInterval(interval_id);',
+                    '                is_ticking = false;',
+                    '                update_interval = false;',
+                    '            }',
+                    '            break;',
+                    '        default:',
+                    '            if (typeof data === "number") {',
+                    '                adjusted_tempo = data;',
+                    '                if (is_ticking) {',
+                    '                    update_interval = true;',
+                    '                }',
+                    '            }',
+                    '        }',
+                    '    };',
+                    '}());'
                 ].join('\n')
             ], { type: 'application/javascript' }));
         }
         Metronome = function Metronome(user_param) {
-            var instance = this,
-                counter = 0,
-                additive = 0,
+            var metronome = this,
                 ticks = 0,
-                sps = 60, // steps per second
                 bpm = 0, // beats per minute
                 st = 0, // subticks, the number of ticks per beat
                 ticker = (worker_object_url !== undef) ? new Worker(worker_object_url) : (function PunyWorkerSetup() {
-                    var instance = {}, interval_id, is_ticking = false, sps = 60;
+                    var puny_worker = {}, onmessage = null, interval_id, is_ticking = false, adjusted_tempo = 60, update_interval = false;
                     function ticker() {
-                        if (typeof instance.onmessage === "function") {
-                            instance.onmessage();
+                        if (typeof onmessage === "function") {
+                            onmessage.call(puny_worker);
+                            if (update_interval) {
+                                clearInterval(interval_id);
+                                interval_id = setInterval(ticker, 60000 / adjusted_tempo);
+                                update_interval = false;
+                            }
                         }
                     }
-                    instance.postMessage = function postMessage(message) {
+                    Object.defineProperty(puny_worker, 'onmessage', {
+                        get: function () {
+                            return onmessage;
+                        },
+                        set: function (handler) {
+                            if (typeof handler === "function") {
+                                onmessage = handler;
+                            }
+                            return handler;
+                        }
+                    });
+                    puny_worker.postMessage = function postMessage(message) {
                         switch (message) {
                         case 'start':
                             if (!is_ticking) {
-                                interval_id = setInterval(ticker, 1000 / sps);
+                                interval_id = setInterval(ticker, 60000 / adjusted_tempo);
                                 is_ticking = true;
                             }
                             break;
@@ -125,15 +150,19 @@ if (typeof Metronome !== "function") {
                             if (is_ticking) {
                                 clearInterval(interval_id);
                                 is_ticking = false;
+                                update_interval = false;
                             }
                             break;
                         default:
                             if (typeof message === "number") {
-                                sps = message;
+                                adjusted_tempo = message;
+                                if (is_ticking) {
+                                    update_interval = true;
+                                }
                             }
                         }
                     };
-                    return instance;
+                    return puny_worker;
                 }),
                 list_of_callbacks = [],
                 loopage,
@@ -147,7 +176,7 @@ if (typeof Metronome !== "function") {
                 debug = false,
                 debugCallback = function debugCallback() {
                     if (console !== undef) {
-                        console.log(ticks + '   counter => ' + counter + '    (bpm / sps) * st => ' + additive);
+                        console.log('ticks: ' + ticks + ', adjusted tempo (60000ms / (' + bpm + 'bpm * ' + st + 'st)): ' + (60000 / (bpm * st)) + 'abpm');
                     }
                 };
             // metro_param must contain all the necessary properties (along with the default values of course) that the Metronome script uses
@@ -161,7 +190,6 @@ if (typeof Metronome !== "function") {
             }
             bpm = metro_param.tempo;
             st = metro_param.subticks;
-            additive = (bpm / sps) * st;
             debug = metro_param.debug;
             if (debug) {
                 list_of_callbacks.push(debugCallback);
@@ -173,50 +201,43 @@ if (typeof Metronome !== "function") {
             // Below is the heart of the metronome script
             loopage = function loopage() {
                 var i, length, callback;
-                counter += additive;
-                // while() is used for instances where the counter is twice more than 60 (due to very high tempo values) and needs to be decremented back repeatedly to something that's under 60 on the same cycle
-                // 60 refers to the number of seconds per minute. This will serve as our constant / anchor
-                while (counter >= 60) {
-                    counter -= 60;
-                    ticks += 1;
-                    for (i = 0, length = list_of_callbacks.length; i < length; i += 1) {
-                        callback = list_of_callbacks[i];
-                        callback.call(instance);
-                    }
+                for (i = 0, length = list_of_callbacks.length; i < length; i += 1) {
+                    callback = list_of_callbacks[i];
+                    callback.call(metronome);
                 }
+                ticks += 1;
             };
             ticker.onmessage = loopage;
-            ticker.postMessage(sps);
+            ticker.postMessage(bpm * st);
             this.start = function start() {
                 if (!is_ticking) {
-                    is_ticking = true;
                     ticker.postMessage('start');
                     loopage();
+                    is_ticking = true;
                 }
-                return instance;
+                return metronome;
             };
             this.stop = function stop() {
                 if (is_ticking) {
                     is_ticking = false;
                     ticker.postMessage('stop');
-                    counter = 0;
                     ticks = 0;
                 }
-                return instance;
+                return metronome;
             };
             this.pause = function pause() {
                 if (is_ticking) {
                     is_ticking = false;
                     ticker.postMessage('stop');
                 }
-                return instance;
+                return metronome;
             };
             this.addCallback = function addCallback(user_callback) {
                 if (user_callback !== undef && typeof user_callback === 'function') {
                     if (list_of_callbacks.indexOf(user_callback) < 0) {
                         list_of_callbacks.push(user_callback);
                     }
-                    return instance;
+                    return metronome;
                 }
                 throw new TypeError('user_callback must be a function');
             };
@@ -224,10 +245,10 @@ if (typeof Metronome !== "function") {
                 var index;
                 if (user_callback !== undef && typeof user_callback === 'function') {
                     index = list_of_callbacks.indexOf(user_callback);
-                    if (index > -1) {
+                    if (index >= 0) {
                         list_of_callbacks.removeAt(index);
                     }
-                    return instance;
+                    return metronome;
                 }
                 throw new TypeError('user_callback must be a function');
             };
@@ -235,8 +256,8 @@ if (typeof Metronome !== "function") {
                 if (arguments.length > 0) {
                     if (user_tempo !== undef && typeof user_tempo === 'number') {
                         bpm = user_tempo;
-                        additive = (bpm / sps) * st;
-                        return instance;
+                        ticker.postMessage(bpm * st);
+                        return metronome;
                     }
                     throw new TypeError('user_tempo must be a number');
                 }
@@ -246,8 +267,8 @@ if (typeof Metronome !== "function") {
                 if (arguments.length > 0) {
                     if (user_subticks !== undef && typeof user_subticks === 'number') {
                         st = user_subticks;
-                        additive = (bpm / sps) * st;
-                        return instance;
+                        ticker.postMessage(bpm * st);
+                        return metronome;
                     }
                     throw new TypeError('user_subticks must be a number');
                 }
@@ -260,8 +281,8 @@ if (typeof Metronome !== "function") {
                 this.endDebug = function endDebug() {
                     list_of_callbacks.shift();
                     debug = false;
-                    delete instance.endDebug;
-                    return instance;
+                    delete metronome.endDebug;
+                    return metronome;
                 };
             }
         };
