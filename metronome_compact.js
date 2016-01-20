@@ -65,6 +65,39 @@ if (typeof Array.prototype.removeAt !== "function") {
 if (typeof Metronome !== "function") {
     (function (global, undef) {
         "use strict";
+        var worker_object_url;
+        if (typeof Blob === "function" && typeof URL === "function" && typeof Worker === "function") {
+            worker_object_url = URL.createObjectURL(new Blob([
+                [
+                    '"use strict";',
+                    'var interval_id, is_ticking = false, sps = 60;',
+                    'function ticker() {',
+                    '    self.postMessage("tick");',
+                    '}',
+                    'self.onmessage = function (event) {',
+                    '    var data = event.data;',
+                    '    switch (data) {',
+                    '    case "start":',
+                    '        if (!is_ticking) {',
+                    '            interval_id = setInterval(ticker, 1000 / sps);',
+                    '            is_ticking = true;',
+                    '        }',
+                    '        break;',
+                    '    case "stop":',
+                    '        if (is_ticking) {',
+                    '            clearInterval(interval_id);',
+                    '            is_ticking = false;',
+                    '        }',
+                    '        break;',
+                    '    default:',
+                    '        if (typeof data === "number") {',
+                    '            sps = data;',
+                    '        }',
+                    '    }',
+                    '};'
+                ].join('\n')
+            ], { type: 'application/javascript' }));
+        }
         Metronome = function Metronome(user_param) {
             var instance = this,
                 counter = 0,
@@ -73,7 +106,7 @@ if (typeof Metronome !== "function") {
                 sps = 60, // steps per second
                 bpm = 0, // beats per minute
                 st = 0, // subticks, the number of ticks per beat
-                ticker = (typeof Worker === "function") ? new Worker('metronome-worker.js') : (function PunyWorkerSetup() {
+                ticker = (worker_object_url !== undef) ? new Worker(worker_object_url) : (function PunyWorkerSetup() {
                     var instance = {}, interval_id, is_ticking = false, sps = 60;
                     function ticker() {
                         if (typeof instance.onmessage === "function") {
