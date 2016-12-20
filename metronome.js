@@ -113,7 +113,7 @@ if (typeof Metronome !== "function") {
                 is_ticking = false,
                 debug = false,
                 debugCallback = function debugCallback() {
-                    if (console !== undef) {
+                    if (console !== undef) { // Who knows? Console can either be a plain object or a function in some hosts...
                         console.log(ticks + '   counter => ' + counter + '    (bpm / sps) * st => ' + additive);
                     }
                 };
@@ -133,7 +133,7 @@ if (typeof Metronome !== "function") {
             if (debug) {
                 list_of_callbacks.push(debugCallback);
             }
-            if (metro_param.callback !== undef && typeof metro_param.callback === 'function') {
+            if (typeof metro_param.callback === 'function') {
                 list_of_callbacks.push(metro_param.callback);
             }
             // End setup settings
@@ -179,7 +179,7 @@ if (typeof Metronome !== "function") {
                 return instance;
             };
             this.addCallback = function addCallback(user_callback) {
-                if (user_callback !== undef && typeof user_callback === 'function') {
+                if (typeof user_callback === 'function') {
                     if (list_of_callbacks.indexOf(user_callback) < 0) {
                         list_of_callbacks.push(user_callback);
                     }
@@ -189,7 +189,7 @@ if (typeof Metronome !== "function") {
             };
             this.removeCallback = function removeCallback(user_callback) {
                 var index;
-                if (user_callback !== undef && typeof user_callback === 'function') {
+                if (typeof user_callback === 'function') {
                     index = list_of_callbacks.indexOf(user_callback);
                     if (index > -1) {
                         list_of_callbacks.removeAt(index);
@@ -198,9 +198,13 @@ if (typeof Metronome !== "function") {
                 }
                 throw new TypeError('user_callback must be a function');
             };
+			this.removeCallbacks = function removeCallbacks() {
+				list_of_callbacks.length = 0;
+				return instance;
+			};
             this.tempo = function tempo(user_tempo) {
                 if (arguments.length > 0) {
-                    if (user_tempo !== undef && typeof user_tempo === 'number') {
+                    if (typeof user_tempo === 'number') {
                         bpm = user_tempo;
                         additive = (bpm / sps) * st;
                         return instance;
@@ -211,7 +215,7 @@ if (typeof Metronome !== "function") {
             };
             this.subticks = function subticks(user_subticks) {
                 if (arguments.length > 0) {
-                    if (user_subticks !== undef && typeof user_subticks === 'number') {
+                    if (typeof user_subticks === 'number') {
                         st = user_subticks;
                         additive = (bpm / sps) * st;
                         return instance;
