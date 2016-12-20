@@ -198,10 +198,10 @@ if (typeof Metronome !== "function") {
                 }
                 throw new TypeError('user_callback must be a function');
             };
-			this.removeCallbacks = function removeCallbacks() {
-				list_of_callbacks.length = 0;
-				return instance;
-			};
+            this.removeCallbacks = function removeCallbacks() {
+                list_of_callbacks.length = 0;
+                return instance;
+            };
             this.tempo = function tempo(user_tempo) {
                 if (arguments.length > 0) {
                     if (typeof user_tempo === 'number') {

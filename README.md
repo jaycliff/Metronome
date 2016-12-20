@@ -1,5 +1,5 @@
 # Metronome
-A web-worker-based ticker for applications that require tempo-based routines.
+A web-worker-based ticker for applications that require tempo-based routines (falls back to using setInterval when web worker is not available).
 
 ## Installation
 
@@ -66,5 +66,3 @@ var metronome = new Metronome({
 console.log('TEMPO: ' + metronome.tempo());
 console.log('SUBTICKS: ' + metronome.subticks());
 ```
-
-**NOTE:** This library utilizes a web worker for precise calculation per tick. The compact version is using an inlined worker, saving you the hassle of setting the path/url of the separate worker file.
