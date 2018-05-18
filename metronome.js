@@ -1,5 +1,5 @@
 /*
-    Copyright 2016 Jaycliff Arcilla
+    Copyright 2018 Jaycliff Arcilla
     
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -66,25 +66,38 @@ if (typeof Metronome !== "function") {
     (function (global, undef) {
         "use strict";
         Metronome = function Metronome(user_param) {
-            var instance = this,
-                counter = 0,
-                additive = 0,
+            var metronome = this,
                 ticks = 0,
-                sps = 60, // steps per second
                 bpm = 0, // beats per minute
                 st = 0, // subticks, the number of ticks per beat
                 ticker = (typeof Worker === "function") ? new Worker('metronome-worker.js') : (function PunyWorkerSetup() {
-                    var instance = {}, interval_id, is_ticking = false, sps = 60;
+                    var puny_worker = {}, onmessage = null, interval_id, is_ticking = false, adjusted_tempo = 60, update_interval = false;
                     function ticker() {
-                        if (typeof instance.onmessage === "function") {
-                            instance.onmessage();
+                        if (typeof onmessage === "function") {
+                            onmessage.call(puny_worker);
+                            if (update_interval) {
+                                clearInterval(interval_id);
+                                interval_id = setInterval(ticker, 60000 / adjusted_tempo);
+                                update_interval = false;
+                            }
                         }
                     }
-                    instance.postMessage = function postMessage(message) {
+                    Object.defineProperty(puny_worker, 'onmessage', {
+                        get: function () {
+                            return onmessage;
+                        },
+                        set: function (handler) {
+                            if (typeof handler === "function") {
+                                onmessage = handler;
+                            }
+                            return handler;
+                        }
+                    });
+                    puny_worker.postMessage = function postMessage(message) {
                         switch (message) {
                         case 'start':
                             if (!is_ticking) {
-                                interval_id = setInterval(ticker, 1000 / sps);
+                                interval_id = setInterval(ticker, 60000 / adjusted_tempo);
                                 is_ticking = true;
                             }
                             break;
@@ -92,16 +105,20 @@ if (typeof Metronome !== "function") {
                             if (is_ticking) {
                                 clearInterval(interval_id);
                                 is_ticking = false;
+                                update_interval = false;
                             }
                             break;
                         default:
-                            if (typeof message === "number") {
-                                sps = message;
-                            }
+                            //if (typeof message === "number") {
+                                adjusted_tempo = Number(message);
+                                if (is_ticking) {
+                                    update_interval = true;
+                                }
+                            //}
                         }
                     };
-                    return instance;
-                }),
+                    return puny_worker;
+                }()),
                 list_of_callbacks = [],
                 loopage,
                 metro_param = {
@@ -113,8 +130,8 @@ if (typeof Metronome !== "function") {
                 is_ticking = false,
                 debug = false,
                 debugCallback = function debugCallback() {
-                    if (console !== undef) { // Who knows? Console can either be a plain object or a function in some hosts...
-                        console.log(ticks + '   counter => ' + counter + '    (bpm / sps) * st => ' + additive);
+                    if (console !== undef) {
+                        console.log('ticks: ' + ticks + ', adjusted tempo (60000ms / (' + bpm + 'bpm * ' + st + 'st)): ' + (60000 / (bpm * st)) + 'abpm');
                     }
                 };
             // metro_param must contain all the necessary properties (along with the default values of course) that the Metronome script uses
@@ -128,86 +145,78 @@ if (typeof Metronome !== "function") {
             }
             bpm = metro_param.tempo;
             st = metro_param.subticks;
-            additive = (bpm / sps) * st;
             debug = metro_param.debug;
             if (debug) {
                 list_of_callbacks.push(debugCallback);
             }
-            if (typeof metro_param.callback === 'function') {
+            if (metro_param.callback !== undef && typeof metro_param.callback === 'function') {
                 list_of_callbacks.push(metro_param.callback);
             }
             // End setup settings
             // Below is the heart of the metronome script
             loopage = function loopage() {
                 var i, length, callback;
-                counter += additive;
-                // while() is used for instances where the counter is twice more than 60 (due to very high tempo values) and needs to be decremented back repeatedly to something that's under 60 on the same cycle
-                // 60 refers to the number of seconds per minute. This will serve as our constant / anchor
-                while (counter >= 60) {
-                    counter -= 60;
-                    ticks += 1;
-                    for (i = 0, length = list_of_callbacks.length; i < length; i += 1) {
-                        callback = list_of_callbacks[i];
-                        callback.call(instance);
-                    }
+                for (i = 0, length = list_of_callbacks.length; i < length; i += 1) {
+                    callback = list_of_callbacks[i];
+                    callback.call(metronome);
                 }
+                ticks += 1;
             };
-            ticker.onmessage = loopage;
-            ticker.postMessage(sps);
+            ticker.postMessage(String(bpm * st));
+            this.isTicking = function isTicking() {
+                return is_ticking;
+            };
             this.start = function start() {
                 if (!is_ticking) {
-                    is_ticking = true;
+                    ticker.onmessage = loopage;
                     ticker.postMessage('start');
                     loopage();
+                    is_ticking = true;
                 }
-                return instance;
+                return metronome;
             };
             this.stop = function stop() {
                 if (is_ticking) {
                     is_ticking = false;
+                    ticker.onmessage = null;
                     ticker.postMessage('stop');
-                    counter = 0;
                     ticks = 0;
                 }
-                return instance;
+                return metronome;
             };
             this.pause = function pause() {
                 if (is_ticking) {
                     is_ticking = false;
                     ticker.postMessage('stop');
                 }
-                return instance;
+                return metronome;
             };
             this.addCallback = function addCallback(user_callback) {
-                if (typeof user_callback === 'function') {
+                if (user_callback !== undef && typeof user_callback === 'function') {
                     if (list_of_callbacks.indexOf(user_callback) < 0) {
                         list_of_callbacks.push(user_callback);
                     }
-                    return instance;
+                    return metronome;
                 }
                 throw new TypeError('user_callback must be a function');
             };
             this.removeCallback = function removeCallback(user_callback) {
                 var index;
-                if (typeof user_callback === 'function') {
+                if (user_callback !== undef && typeof user_callback === 'function') {
                     index = list_of_callbacks.indexOf(user_callback);
-                    if (index > -1) {
+                    if (index >= 0) {
                         list_of_callbacks.removeAt(index);
                     }
-                    return instance;
+                    return metronome;
                 }
                 throw new TypeError('user_callback must be a function');
             };
-            this.removeCallbacks = function removeCallbacks() {
-                list_of_callbacks.length = 0;
-                return instance;
-            };
             this.tempo = function tempo(user_tempo) {
                 if (arguments.length > 0) {
-                    if (typeof user_tempo === 'number') {
+                    if (user_tempo !== undef && typeof user_tempo === 'number') {
                         bpm = user_tempo;
-                        additive = (bpm / sps) * st;
-                        return instance;
+                        ticker.postMessage(String(bpm * st));
+                        return metronome;
                     }
                     throw new TypeError('user_tempo must be a number');
                 }
@@ -215,10 +224,10 @@ if (typeof Metronome !== "function") {
             };
             this.subticks = function subticks(user_subticks) {
                 if (arguments.length > 0) {
-                    if (typeof user_subticks === 'number') {
+                    if (user_subticks !== undef && typeof user_subticks === 'number') {
                         st = user_subticks;
-                        additive = (bpm / sps) * st;
-                        return instance;
+                        ticker.postMessage(String(bpm * st));
+                        return metronome;
                     }
                     throw new TypeError('user_subticks must be a number');
                 }
@@ -231,8 +240,8 @@ if (typeof Metronome !== "function") {
                 this.endDebug = function endDebug() {
                     list_of_callbacks.shift();
                     debug = false;
-                    delete instance.endDebug;
-                    return instance;
+                    delete metronome.endDebug;
+                    return metronome;
                 };
             }
         };
